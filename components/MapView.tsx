@@ -58,7 +58,10 @@ export default function MapView({ people, result, showHeat, onPick, picking, foc
     m.on("error", (e) => console.error("[map]", e.error?.message ?? e));
     m.on("click", (e: MapMouseEvent) => pickRef.current?.({ lat: e.lngLat.lat, lon: e.lngLat.lng }));
     map.current = m;
-    return () => { m.remove(); map.current = null; ready.current = false; };
+    // Keep the canvas in step with the container (layout shifts, panel resizes, emulated viewports).
+    const ro = new ResizeObserver(() => m.resize());
+    ro.observe(box.current);
+    return () => { ro.disconnect(); m.remove(); map.current = null; ready.current = false; };
   }, []);
 
   useEffect(() => {
