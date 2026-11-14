@@ -1,36 +1,43 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Fair Middle
 
-## Getting Started
+Meet where the **time** is fair, not the distance.
 
-First, run the development server:
+Everyone splits the distance. Fair Middle splits the time: it finds the meeting point that minimises the *longest* commute in the group, shows a fairness heatmap and a receipt comparing it to the geographic middle, and ranks real cafés and restaurants there by door-to-door travel time.
+
+## Run it
 
 ```bash
+npm install
+cp .env.example .env.local   # optional; defaults work without it
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open http://localhost:3000, hit **Load Delhi demo**, then **Find the fair spot**. No API keys needed: travel times come from OSRM (OpenStreetMap), venues from Overpass / Nominatim / Photon.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+npm test          # solver unit tests (synthetic city with a "river" penalty)
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## How it works
 
-## Learn More
+1. **Pass 1:** a 9×9 grid over the group's area plus the geographic centroid; one travel-time matrix call per travel mode.
+2. **Pass 2:** a finer 7×7 grid around the winner.
+3. **Pass 3:** real venues within 1.5 km of the fair point, re-ranked by the same objective.
 
-To learn more about Next.js, take a look at the following resources:
+Objectives: `minimax` (default, minimise the worst commute) and `total`.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Layout
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```
+lib/solver        pure solver: candidates, objective, 3-pass pipeline (+ tests)
+lib/providers     TravelTimeProvider (OSRM, cached), VenueProvider chain, geocoder
+lib/cache         in-memory cache behind an interface (Redis-ready)
+lib/db.ts         SQLite via node:sqlite; groups, participants, results
+app/api           /solve, /geocode, /groups/[id]
+app/g/[id]        share page (travel times only, never coordinates)
+components        Planner, MapView (MapLibre), Receipt
+```
 
-## Deploy on Vercel
+Keys stay server-side. Shared plans expose each person's *travel time*, never their start location, and expire after 7 days.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+See `docs/ARCHITECTURE.md` (and `docs/PM-BRIEF.md`; the original single-file prototype is `docs/prototype-v0.html`) for the phase plan (modes and traffic, time-of-day heatmap, account-free group flow, commute credit).

@@ -1,0 +1,410 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fair Middle</title>
+<meta name="description" content="Find the meeting point that is fair by travel time, not distance, and the venues there.">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+  :root {
+    --bg: #f6f5f1; --panel: #ffffff; --ink: #1c1b18; --muted: #6b6860; --line: #e4e1d9;
+    --accent: #0f766e; --accent-ink: #ffffff; --warn: #b45309; --bad: #b91c1c; --good: #15803d;
+    --ghost: #8a877e; --chip: #efede6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #141413; --panel: #1e1e1c; --ink: #f1efe8; --muted: #a39f94; --line: #33322e;
+      --accent: #2dd4bf; --accent-ink: #0b2a27; --warn: #f59e0b; --bad: #f87171; --good: #4ade80;
+      --ghost: #7d7a71; --chip: #2a2a27;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #141413; --panel: #1e1e1c; --ink: #f1efe8; --muted: #a39f94; --line: #33322e;
+    --accent: #2dd4bf; --accent-ink: #0b2a27; --warn: #f59e0b; --bad: #f87171; --good: #4ade80;
+    --ghost: #7d7a71; --chip: #2a2a27;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body { background: var(--bg); color: var(--ink); font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .app { display: grid; grid-template-columns: 400px 1fr; height: 100vh; }
+  .side { background: var(--panel); border-right: 1px solid var(--line); overflow-y: auto; padding: 20px 16px 32px; }
+  #map { height: 100%; min-height: 320px; background: #ddd; }
+  h1 { font-size: 22px; margin: 0 0 2px; letter-spacing: -0.01em; }
+  .tag { color: var(--muted); font-size: 13px; margin: 0 0 18px; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 22px 0 8px; }
+  .person { display: grid; grid-template-columns: 28px 1fr 32px; gap: 8px; align-items: start; padding: 10px 0; border-bottom: 1px solid var(--line); }
+  .dot { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; color: #fff; font-weight: 700; font-size: 12px; margin-top: 4px; }
+  .person input { width: 100%; border: 1px solid var(--line); background: var(--bg); color: var(--ink); border-radius: 8px; padding: 7px 9px; font: inherit; }
+  .person .row { display: flex; gap: 6px; margin-top: 6px; }
+  .person .where { font-size: 12px; color: var(--muted); margin-top: 4px; min-height: 16px; }
+  button { font: inherit; border-radius: 8px; border: 1px solid var(--line); background: var(--chip); color: var(--ink); padding: 7px 10px; cursor: pointer; }
+  button:hover { filter: brightness(0.97); }
+  button.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; font-weight: 600; padding: 10px 14px; width: 100%; margin-top: 12px; }
+  button.icon { padding: 4px 0; width: 32px; margin-top: 4px; }
+  button:disabled { opacity: .55; cursor: default; }
+  .actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+  .actions button { flex: 1; }
+  label.opt { display: flex; align-items: center; gap: 8px; font-size: 14px; margin-top: 10px; }
+  select { font: inherit; border: 1px solid var(--line); background: var(--bg); color: var(--ink); border-radius: 8px; padding: 6px 8px; }
+  .status { font-size: 13px; color: var(--muted); margin-top: 10px; min-height: 18px; }
+  .status.err { color: var(--bad); }
+  .card { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; margin-top: 10px; background: var(--bg); }
+  .card h3 { margin: 0 0 4px; font-size: 16px; }
+  .card .sub { color: var(--muted); font-size: 13px; }
+  .big { font-size: 28px; font-weight: 700; letter-spacing: -0.02em; margin: 6px 0 0; }
+  .big small { font-size: 13px; font-weight: 500; color: var(--muted); margin-left: 6px; }
+  table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 14px; }
+  th, td { text-align: left; padding: 6px 4px; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 600; font-size: 12px; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .delta { font-size: 12px; margin-left: 4px; }
+  .delta.good { color: var(--good); } .delta.bad { color: var(--bad); }
+  .venue { display: grid; grid-template-columns: 1fr auto; gap: 6px; padding: 8px 0; border-bottom: 1px solid var(--line); cursor: pointer; }
+  .venue:last-child { border-bottom: 0; }
+  .venue .n { font-weight: 600; } .venue .k { color: var(--muted); font-size: 12px; }
+  .venue .t { font-variant-numeric: tabular-nums; text-align: right; }
+  .venue .t small { display: block; color: var(--muted); font-size: 11px; }
+  .venue.top { background: color-mix(in srgb, var(--accent) 10%, transparent); margin: 0 -14px; padding: 8px 14px; border-radius: 8px; }
+  .why { margin-top: 10px; font-size: 14px; }
+  .legend { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); margin-top: 8px; }
+  .legend .bar { flex: 1; height: 8px; border-radius: 4px; background: linear-gradient(90deg, hsl(120 60% 45%), hsl(60 70% 50%), hsl(0 65% 50%)); }
+  .pin-hint { position: absolute; z-index: 1000; top: 10px; left: 50%; transform: translateX(-50%); background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 999px; padding: 6px 14px; font-size: 13px; box-shadow: 0 4px 16px rgba(0,0,0,.15); display: none; }
+  .map-wrap { position: relative; }
+  .foot { font-size: 12px; color: var(--muted); margin-top: 24px; }
+  .marker-person { border-radius: 50%; color: #fff; font-weight: 700; font-size: 12px; display: grid; place-items: center; border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,.4); }
+  .marker-star { font-size: 26px; line-height: 1; filter: drop-shadow(0 1px 2px rgba(0,0,0,.5)); }
+  .marker-ghost { width: 18px; height: 18px; border-radius: 50%; border: 2px dashed #555; background: rgba(255,255,255,.7); }
+  @media (max-width: 860px) {
+    .app { grid-template-columns: 1fr; grid-template-rows: auto 1fr; height: auto; }
+    .side { border-right: 0; border-bottom: 1px solid var(--line); max-height: none; }
+    #map { height: 60vh; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="side">
+    <h1>Fair Middle</h1>
+    <p class="tag">Meet where the <b>time</b> is fair, not the distance.</p>
+
+    <h2>Who is coming</h2>
+    <div id="people"></div>
+    <div class="actions">
+      <button id="add">+ Add person</button>
+      <button id="demo">Load Delhi demo</button>
+    </div>
+
+    <label class="opt">Fairness rule
+      <select id="rule">
+        <option value="minimax">Minimize the worst commute</option>
+        <option value="total">Minimize total travel time</option>
+      </select>
+    </label>
+    <label class="opt"><input type="checkbox" id="heat" checked> Show fairness heatmap</label>
+
+    <button class="primary" id="go">Find the fair spot</button>
+    <div class="status" id="status"></div>
+
+    <div id="results"></div>
+
+    <p class="foot">Travel times are live road travel times from OSRM (OpenStreetMap data). Venues from OpenStreetMap via Overpass. Transit and walking modes via Google Distance Matrix are the next step.</p>
+  </aside>
+  <div class="map-wrap">
+    <div class="pin-hint" id="pinHint">Click the map to place this person</div>
+    <div id="map"></div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+(() => {
+  const COLORS = ['#2563eb', '#db2777', '#d97706', '#7c3aed', '#059669', '#dc2626'];
+  const OSRM = 'https://router.project-osrm.org/table/v1/driving/';
+  const OVERPASS = ['https://overpass-api.de/api/interpreter'];
+  const DEMO = [
+    { name: 'Priya', q: 'Dwarka Sector 10, Delhi', lat: 28.5823, lon: 77.0500 },
+    { name: 'Rahul', q: 'Indirapuram, Ghaziabad', lat: 28.6420, lon: 77.3700 },
+    { name: 'Aman', q: 'Saket, Delhi', lat: 28.5245, lon: 77.2066 },
+  ];
+
+  let people = [];
+  let pinning = null;
+  const layers = { people: L.layerGroup(), heat: L.layerGroup(), result: L.layerGroup() };
+
+  const map = L.map('map', { zoomControl: true }).setView([28.61, 77.21], 11);
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap contributors' }).addTo(map);
+  Object.values(layers).forEach(l => l.addTo(map));
+
+  map.on('click', e => {
+    if (pinning === null) return;
+    const p = people[pinning];
+    p.lat = e.latlng.lat; p.lon = e.latlng.lng; p.where = `Pinned at ${p.lat.toFixed(4)}, ${p.lon.toFixed(4)}`;
+    pinning = null; document.getElementById('pinHint').style.display = 'none';
+    render(); drawPeople();
+  });
+
+  const $ = id => document.getElementById(id);
+  const fmt = s => s == null ? '—' : `${Math.round(s / 60)} min`;
+  const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+  function addPerson(p = {}) {
+    if (people.length >= 6) return;
+    people.push({ name: p.name || `Person ${people.length + 1}`, q: p.q || '', lat: p.lat ?? null, lon: p.lon ?? null, where: p.where || (p.lat ? p.q : '') });
+    render(); drawPeople();
+  }
+
+  function render() {
+    const host = $('people'); host.innerHTML = '';
+    people.forEach((p, i) => {
+      const el = document.createElement('div'); el.className = 'person';
+      el.innerHTML = `
+        <div class="dot" style="background:${COLORS[i]}">${esc(p.name.slice(0, 1).toUpperCase())}</div>
+        <div>
+          <input data-k="name" placeholder="Name" value="${esc(p.name)}">
+          <div class="row">
+            <input data-k="q" placeholder="Start location, e.g. Saket, Delhi" value="${esc(p.q)}">
+            <button data-act="find" title="Look up this address">Find</button>
+            <button data-act="pin" title="Click on the map instead">Pin</button>
+          </div>
+          <div class="where">${p.lat != null ? '📍 ' + esc(p.where) : '<span style="color:var(--warn)">No location yet</span>'}</div>
+        </div>
+        <button class="icon" data-act="del" title="Remove">✕</button>`;
+      el.querySelectorAll('input').forEach(inp => inp.addEventListener('input', e => { p[e.target.dataset.k] = e.target.value; if (e.target.dataset.k === 'name') { el.querySelector('.dot').textContent = p.name.slice(0, 1).toUpperCase(); drawPeople(); } }));
+      el.querySelector('[data-act=find]').onclick = () => geocode(i);
+      el.querySelector('[data-act=pin]').onclick = () => { pinning = i; $('pinHint').textContent = `Click the map to place ${p.name}`; $('pinHint').style.display = 'block'; };
+      el.querySelector('[data-act=del]').onclick = () => { people.splice(i, 1); render(); drawPeople(); };
+      host.appendChild(el);
+    });
+    $('add').disabled = people.length >= 6;
+  }
+
+  async function geocode(i) {
+    const p = people[i]; if (!p.q.trim()) return;
+    setStatus(`Looking up “${p.q}”…`);
+    try {
+      const r = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(p.q)}`);
+      const j = await r.json();
+      if (!j.length) { setStatus(`Could not find “${p.q}”. Try adding the city, or use Pin.`, true); return; }
+      p.lat = +j[0].lat; p.lon = +j[0].lon; p.where = j[0].display_name.split(',').slice(0, 3).join(',');
+      setStatus(''); render(); drawPeople();
+      map.fitBounds(L.latLngBounds(people.filter(x => x.lat != null).map(x => [x.lat, x.lon])).pad(0.3));
+    } catch (e) { setStatus('Geocoding failed. Try Pin on the map.', true); }
+  }
+
+  function personIcon(i, name) {
+    return L.divIcon({ className: '', html: `<div class="marker-person" style="width:30px;height:30px;background:${COLORS[i]}">${esc(name.slice(0, 1).toUpperCase())}</div>`, iconSize: [30, 30], iconAnchor: [15, 15] });
+  }
+  function drawPeople() {
+    layers.people.clearLayers();
+    people.forEach((p, i) => { if (p.lat != null) L.marker([p.lat, p.lon], { icon: personIcon(i, p.name) }).bindTooltip(p.name).addTo(layers.people); });
+  }
+  function setStatus(t, err) { const s = $('status'); s.textContent = t; s.className = 'status' + (err ? ' err' : ''); }
+
+  // ---------- geometry ----------
+  function bbox(pts, pad = 0.25, minSpan = 0.06) {
+    let la1 = Math.min(...pts.map(p => p.lat)), la2 = Math.max(...pts.map(p => p.lat));
+    let lo1 = Math.min(...pts.map(p => p.lon)), lo2 = Math.max(...pts.map(p => p.lon));
+    const dla = Math.max(la2 - la1, minSpan), dlo = Math.max(lo2 - lo1, minSpan);
+    const cla = (la1 + la2) / 2, clo = (lo1 + lo2) / 2;
+    return { la1: cla - dla / 2 * (1 + pad), la2: cla + dla / 2 * (1 + pad), lo1: clo - dlo / 2 * (1 + pad), lo2: clo + dlo / 2 * (1 + pad) };
+  }
+  function grid(b, n) {
+    const out = [];
+    for (let i = 0; i < n; i++) for (let j = 0; j < n; j++)
+      out.push({ lat: b.la1 + (b.la2 - b.la1) * i / (n - 1), lon: b.lo1 + (b.lo2 - b.lo1) * j / (n - 1) });
+    return out;
+  }
+  function centroid(pts) { return { lat: pts.reduce((s, p) => s + p.lat, 0) / pts.length, lon: pts.reduce((s, p) => s + p.lon, 0) / pts.length }; }
+  function haversine(a, b) {
+    const R = 6371, dLat = (b.lat - a.lat) * Math.PI / 180, dLon = (b.lon - a.lon) * Math.PI / 180;
+    const x = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * Math.PI / 180) * Math.cos(b.lat * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
+    return 2 * R * Math.asin(Math.sqrt(x));
+  }
+
+  // ---------- data ----------
+  async function travelMatrix(sources, dests) {
+    const coords = [...sources, ...dests].map(p => `${p.lon.toFixed(6)},${p.lat.toFixed(6)}`).join(';');
+    const s = sources.map((_, i) => i).join(';'), d = dests.map((_, i) => sources.length + i).join(';');
+    const r = await fetch(`${OSRM}${coords}?sources=${s}&destinations=${d}&annotations=duration`);
+    if (!r.ok) throw new Error(`Routing server returned ${r.status}`);
+    const j = await r.json();
+    if (j.code !== 'Ok') throw new Error(`Routing failed: ${j.message || j.code}`);
+    return { durations: j.durations, snapped: j.destinations.map(x => ({ lat: x.location[1], lon: x.location[0], name: x.name })) };
+  }
+  function score(durations, k, rule) {
+    const col = durations.map(row => row[k]);
+    if (col.some(v => v == null)) return null;
+    return { worst: Math.max(...col), total: col.reduce((a, b) => a + b, 0), spread: Math.max(...col) - Math.min(...col), col,
+             key: rule === 'total' ? col.reduce((a, b) => a + b, 0) : Math.max(...col) };
+  }
+  function fetchJson(url, ms = 8000) {
+    const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), ms);
+    return fetch(url, { signal: ctl.signal }).then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); }).finally(() => clearTimeout(t));
+  }
+  const finish = (els, pt) => { els.sort((a, b) => haversine(a, pt) - haversine(b, pt)); return els.slice(0, 20); };
+
+  // Venue sources, tried in order. Public Overpass servers are often at capacity, so Nominatim and Photon back it up.
+  async function venuesOverpass(pt) {
+    const q = `[out:json][timeout:8];(node(around:1500,${pt.lat},${pt.lon})["amenity"~"^(cafe|restaurant|bar|pub|food_court)$"]["name"];way(around:1500,${pt.lat},${pt.lon})["amenity"~"^(cafe|restaurant|bar|pub|food_court)$"]["name"];);out center 60;`;
+    for (const base of OVERPASS) {
+      try {
+        const j = await fetchJson(`${base}?data=${encodeURIComponent(q)}`, 9000);
+        const els = j.elements.map(e => ({ name: e.tags.name, kind: e.tags.amenity.replace('_', ' '), lat: e.lat ?? e.center?.lat, lon: e.lon ?? e.center?.lon })).filter(v => v.lat != null);
+        if (els.length) return finish(els, pt);
+      } catch (e) { /* next source */ }
+    }
+    return [];
+  }
+  async function venuesNominatim(pt) {
+    const d = 0.015; // ~1.5 km box
+    const box = `${pt.lon - d},${pt.lat + d},${pt.lon + d},${pt.lat - d}`;
+    const out = [];
+    for (const kind of ['cafe', 'restaurant']) {
+      try {
+        const j = await fetchJson(`https://nominatim.openstreetmap.org/search?q=${kind}&format=json&viewbox=${box}&bounded=1&limit=20`);
+        j.forEach(x => out.push({ name: x.name || x.display_name.split(',')[0], kind: x.type.replace('_', ' '), lat: +x.lat, lon: +x.lon }));
+      } catch (e) { /* keep going */ }
+      await new Promise(r => setTimeout(r, 1100)); // Nominatim asks for 1 request per second
+    }
+    return finish(out, pt);
+  }
+  async function venuesPhoton(pt) {
+    const out = [];
+    for (const kind of ['cafe', 'restaurant']) {
+      try {
+        const j = await fetchJson(`https://photon.komoot.io/api/?q=${kind}&lat=${pt.lat}&lon=${pt.lon}&limit=25&osm_tag=amenity:${kind}`);
+        j.features.forEach(f => { const v = { name: f.properties.name, kind, lon: f.geometry.coordinates[0], lat: f.geometry.coordinates[1] }; if (v.name && haversine(v, pt) < 3) out.push(v); });
+      } catch (e) { /* keep going */ }
+    }
+    return finish(out, pt);
+  }
+  async function venuesNear(pt) {
+    for (const src of [venuesOverpass, venuesNominatim, venuesPhoton]) {
+      const v = await src(pt);
+      if (v.length) return v;
+    }
+    return [];
+  }
+
+  // ---------- main ----------
+  async function run() {
+    const pts = people.filter(p => p.lat != null);
+    if (pts.length < 2) { setStatus('Add at least two people with locations.', true); return; }
+    if (pinning !== null) { pinning = null; $('pinHint').style.display = 'none'; }
+    const rule = $('rule').value;
+    $('go').disabled = true; layers.heat.clearLayers(); layers.result.clearLayers(); $('results').innerHTML = '';
+    try {
+      // Pass 1: coarse grid + geographic centroid
+      setStatus('Pass 1 of 3: measuring travel times across the city…');
+      const c = centroid(pts);
+      const cand1 = [...grid(bbox(pts), 9), c];
+      const m1 = await travelMatrix(pts, cand1);
+      const scored1 = cand1.map((_, k) => score(m1.durations, k, rule));
+      const centroidScore = scored1[cand1.length - 1];
+      let best = -1;
+      scored1.forEach((s, k) => { if (s && (best < 0 || s.key < scored1[best].key || (s.key === scored1[best].key && s.total < scored1[best].total))) best = k; });
+      if (best < 0) throw new Error('No reachable candidates. Are the start points on the road network?');
+      if ($('heat').checked) drawHeat(m1.snapped, scored1);
+
+      // Pass 2: fine grid around the winner
+      setStatus('Pass 2 of 3: zooming in on the fair zone…');
+      const b = bbox(pts); const cell = { la: (b.la2 - b.la1) / 8, lo: (b.lo2 - b.lo1) / 8 };
+      const bp = cand1[best];
+      const cand2 = grid({ la1: bp.lat - cell.la, la2: bp.lat + cell.la, lo1: bp.lon - cell.lo, lo2: bp.lon + cell.lo }, 7);
+      const m2 = await travelMatrix(pts, cand2);
+      const scored2 = cand2.map((_, k) => score(m2.durations, k, rule));
+      let best2 = -1;
+      scored2.forEach((s, k) => { if (s && (best2 < 0 || s.key < scored2[best2].key)) best2 = k; });
+      let fair = best2 >= 0 && scored2[best2].key <= scored1[best].key ? { pt: m2.snapped[best2], s: scored2[best2] } : { pt: m1.snapped[best], s: scored1[best] };
+      if ($('heat').checked) drawHeat(m2.snapped, scored2, true);
+
+      // Pass 3: venues, re-scored by real travel time
+      setStatus('Pass 3 of 3: finding cafés and restaurants at the fair spot…');
+      let venues = await venuesNear(fair.pt);
+      if (venues.length) {
+        const m3 = await travelMatrix(pts, venues);
+        venues = venues.map((v, k) => ({ ...v, s: score(m3.durations, k, rule) })).filter(v => v.s).sort((a, b) => a.s.key - b.s.key || a.s.total - b.s.total).slice(0, 6);
+      }
+      setStatus('');
+      showResults(pts, fair, c, centroidScore, venues, rule);
+    } catch (e) {
+      setStatus(e.message || 'Something went wrong.', true);
+    } finally { $('go').disabled = false; }
+  }
+
+  function drawHeat(pts, scores, fine) {
+    const vals = scores.filter(Boolean).map(s => s.key);
+    const lo = Math.min(...vals), hi = Math.max(...vals);
+    pts.forEach((p, k) => {
+      const s = scores[k]; if (!s) return;
+      const t = hi === lo ? 0 : (s.key - lo) / (hi - lo);
+      L.circleMarker([p.lat, p.lon], { radius: fine ? 5 : 9, stroke: false, fillColor: `hsl(${120 * (1 - t)} 65% 48%)`, fillOpacity: fine ? 0.55 : 0.4 })
+        .bindTooltip(`Worst commute here: ${fmt(s.worst)}`).addTo(layers.heat);
+    });
+  }
+
+  function showResults(pts, fair, c, cs, venues, rule) {
+    const star = L.divIcon({ className: '', html: '<div class="marker-star">⭐</div>', iconSize: [26, 26], iconAnchor: [13, 13] });
+    const ghost = L.divIcon({ className: '', html: '<div class="marker-ghost"></div>', iconSize: [18, 18], iconAnchor: [9, 9] });
+    L.marker([c.lat, c.lon], { icon: ghost, zIndexOffset: 500 }).bindTooltip('Geographic middle (the “obvious” spot)').addTo(layers.result);
+    L.marker([fair.pt.lat, fair.pt.lon], { icon: star, zIndexOffset: 1000 }).bindTooltip('Fair spot by travel time').addTo(layers.result);
+    pts.forEach((p, i) => L.polyline([[p.lat, p.lon], [fair.pt.lat, fair.pt.lon]], { color: COLORS[people.indexOf(p)], weight: 2, opacity: 0.6, dashArray: '4 6' }).addTo(layers.result));
+    venues.forEach((v, k) => L.circleMarker([v.lat, v.lon], { radius: k === 0 ? 8 : 5, color: '#fff', weight: 1.5, fillColor: k === 0 ? '#0f766e' : '#f59e0b', fillOpacity: 0.95 }).bindTooltip(`${v.name} · worst ${fmt(v.s.worst)}`).addTo(layers.result));
+    map.fitBounds(L.latLngBounds([...pts.map(p => [p.lat, p.lon]), [fair.pt.lat, fair.pt.lon], [c.lat, c.lon]]).pad(0.2));
+
+    const top = venues[0];
+    const target = top ? top.s : fair.s;
+    const worstIdx = cs ? cs.col.indexOf(cs.worst) : -1;
+    const saved = cs ? cs.worst - target.worst : null;
+    const whoWorst = worstIdx >= 0 ? pts[worstIdx].name : null;
+
+    let html = `
+      <div class="card">
+        <div class="sub">Recommended</div>
+        <h3>${top ? esc(top.name) : 'Fair spot'}</h3>
+        <div class="sub">${[top && esc(top.kind), fair.pt.name && 'near ' + esc(fair.pt.name)].filter(Boolean).join(' · ')}</div>
+        <div class="big">${fmt(target.worst)}<small>longest commute</small></div>
+        <div class="sub">Spread between fastest and slowest: ${fmt(target.spread)} · Total: ${fmt(target.total)}</div>
+      </div>
+      <div class="card">
+        <h3>Fairness receipt</h3>
+        <div class="sub">Each person's travel time to the recommended spot vs the geographic middle</div>
+        <table>
+          <tr><th>Person</th><th class="num">Fair spot</th><th class="num">Geo middle</th></tr>
+          ${pts.map((p, i) => {
+            const a = target.col[i], g = cs ? cs.col[i] : null; const d = g != null ? a - g : null;
+            return `<tr><td><span style="color:${COLORS[people.indexOf(p)]}">●</span> ${esc(p.name)}</td>
+              <td class="num">${fmt(a)}${d != null && Math.abs(d) >= 60 ? `<span class="delta ${d < 0 ? 'good' : 'bad'}">${d < 0 ? '−' : '+'}${Math.round(Math.abs(d) / 60)}</span>` : ''}</td>
+              <td class="num">${fmt(g)}</td></tr>`; }).join('')}
+          <tr><th>Worst commute</th><th class="num">${fmt(target.worst)}</th><th class="num">${fmt(cs?.worst)}</th></tr>
+          <tr><th>Spread</th><th class="num">${fmt(target.spread)}</th><th class="num">${fmt(cs?.spread)}</th></tr>
+        </table>
+        ${cs ? `<p class="why">${saved >= 60
+          ? `The geographic middle looks fair on a map but makes <b>${esc(whoWorst)}</b> travel <b>${fmt(cs.worst)}</b>. Moving to the fair spot saves them <b>${fmt(saved)}</b>${rule === 'minimax' ? ' while keeping everyone else’s longest trip under ' + fmt(target.worst) : ''}.`
+          : `Here the geographic middle is already close to fair: the road network treats everyone about equally.`}</p>` : ''}
+      </div>`;
+
+    if (venues.length) {
+      html += `<div class="card"><h3>Places near the fair spot</h3><div class="sub">Ranked by ${rule === 'total' ? 'total travel time' : 'the longest commute'}, measured door to door</div>
+        ${venues.map((v, k) => `<div class="venue ${k === 0 ? 'top' : ''}" data-i="${k}">
+          <div><div class="n">${esc(v.name)}</div><div class="k">${esc(v.kind)} · ${v.s.col.map((t, i) => `${esc(pts[i].name)} ${Math.round(t / 60)}`).join(' · ')} min</div></div>
+          <div class="t">${fmt(v.s.worst)}<small>longest</small></div></div>`).join('')}</div>`;
+    } else {
+      html += `<div class="card"><h3>No cafés found nearby</h3><div class="sub">OpenStreetMap has no named cafés or restaurants within 2.5 km of this spot. Try another fairness rule or add a person.</div></div>`;
+    }
+    html += `<div class="legend"><span>Shorter worst commute</span><div class="bar"></div><span>Longer</span></div>`;
+    $('results').innerHTML = html;
+    $('results').querySelectorAll('.venue').forEach(el => el.onclick = () => { const v = venues[+el.dataset.i]; map.setView([v.lat, v.lon], 15); });
+  }
+
+  // ---------- wiring ----------
+  $('add').onclick = () => addPerson();
+  $('demo').onclick = () => { people = []; DEMO.forEach(d => addPerson({ ...d, where: d.q })); map.fitBounds(L.latLngBounds(DEMO.map(d => [d.lat, d.lon])).pad(0.3)); setStatus('Three friends across Delhi. Hit “Find the fair spot”.'); };
+  $('go').onclick = run;
+  $('heat').onchange = e => { if (!e.target.checked) layers.heat.clearLayers(); };
+  addPerson(); addPerson();
+})();
+</script>
+</body>
+</html>
