@@ -4,6 +4,8 @@ Meet where the **time** is fair, not the distance.
 
 Everyone splits the distance. Fair Middle splits the time: it finds the meeting point that minimises the *longest* commute in the group, shows a fairness heatmap and a receipt comparing it to the geographic middle, and ranks real cafés and restaurants there by door-to-door travel time.
 
+**Live:** https://fair-middle.vercel.app (Vercel + Neon Postgres, free OSRM routing)
+
 ## Run it
 
 ```bash
@@ -41,12 +43,16 @@ lib/solver        pure solver: candidates, objective, 3-pass pipeline (+ tests)
 lib/providers     TravelTimeProvider (OSRM, Google Routes, cached), VenueProvider chain, geocoder
 lib/metro.ts      Delhi Metro stations (lib/data), nearest-station helpers
 lib/cache         in-memory cache behind an interface (Redis-ready)
-lib/db.ts         SQLite via node:sqlite; groups, participants, results
+lib/store         Store interface: SQLite (node:sqlite) locally, Postgres (Neon driver) on serverless
 app/api           /solve, /geocode, /groups (create), /groups/[id] (+ join, vote, confirm, solve, inspect)
 app/g/[id]        group page (join, vote, confirm, share), card.png and OpenGraph image
 lib/group.ts      group lifecycle: create, join, background re-solve, vote, confirm, public view
 components        Planner (home), GroupPage, MapView (MapLibre), Receipt
 ```
+
+## Deploy
+
+Vercel: `vercel deploy --prod`. Attach a Postgres database (Neon via the Vercel Marketplace works out of the box); the app switches from the local SQLite file to Postgres whenever `DATABASE_URL` or `POSTGRES_URL` is set. Set `TRAVEL_PROVIDER=google` and `GOOGLE_MAPS_API_KEY` for traffic-aware, per-mode times.
 
 Keys stay server-side. Shared plans expose each person's *travel time*, never their start location, and expire after 7 days.
 
