@@ -6,6 +6,7 @@ import { allow, clientKey } from "@/lib/rateLimit";
 import { parseOptions, parseParticipants, type SolveBody } from "@/lib/solver/request";
 
 /** Quick mode: one person enters everyone; the solve runs inline and the caller becomes organiser. */
+export const maxDuration = 60;
 export async function POST(req: Request) {
   if (!allow(`solve:${clientKey(req)}`, 12, 60_000)) return NextResponse.json({ error: "Too many requests. Try again in a minute." }, { status: 429 });
   try {

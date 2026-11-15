@@ -10,7 +10,7 @@ export async function POST(req: Request) {
   try {
     const body = (await req.json().catch(() => ({}))) as SolveBody & { title?: string };
     const title = String(body.title ?? "").slice(0, 60).trim() || undefined;
-    const { id, organiserToken } = createGroup(parseOptions(body), title);
+    const { id, organiserToken } = await createGroup(parseOptions(body), title);
     const res = NextResponse.json({ groupId: id });
     setOrganiser(res, id, organiserToken);
     return res;

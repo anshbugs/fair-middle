@@ -7,7 +7,7 @@ import { viewerCookies } from "@/lib/http";
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   const { id } = await params;
-  const g = publicView(id, {});
+  const g = await publicView(id, {});
   const v = g ? cardVenue(g) : undefined;
   const names = g?.participants.map((p) => p.name).join(", ");
   return {
@@ -20,7 +20,7 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
 
 export default async function SharePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const g = publicView(id, await viewerCookies(id));
+  const g = await publicView(id, await viewerCookies(id));
   if (!g) notFound();
   return <GroupPage initial={g} />;
 }

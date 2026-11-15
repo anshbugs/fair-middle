@@ -1,9 +1,7 @@
-import {
-  confirmGroup, groupOptions, insertGroup, insertParticipant, insertResult, latestResult, liveGroup, logEvent,
-  newId, privateParticipants, setVote, updateParticipant, voteTally, type GroupRow,
-} from "./db";
+import { groupOptions, newId, store } from "./db";
 import type { SolveDeps } from "./solver/solve";
 import { solve } from "./solver/solve";
+import { isSolving, type GroupRow } from "./store";
 import { hashToken, newToken, tokenMatches } from "./tokens";
 import { venueKey, type Participant, type PublicGroup, type SolveOptions, type SolveResult } from "./types";
 
@@ -11,6 +9,8 @@ import { venueKey, type Participant, type PublicGroup, type SolveOptions, type S
  * Group lifecycle for the account-free flow:
  *   organiser creates a link → friends join with their own start → every join re-solves in the
  *   background → friends vote on the top venues → organiser confirms → share card.
+ * All coordination state (solve lock, dirty flag) lives in the store, so it works across
+ * serverless instances.
  */
 export class GroupError extends Error {
   constructor(message: string, public status = 400) { super(message); }
@@ -18,118 +18,121 @@ export class GroupError extends Error {
 
 export type Cookies = { organiser?: string; participant?: string };
 
-const computing = new Set<string>();
-/** Groups that changed while a solve was running and need one more pass. */
-const dirty = new Set<string>();
-export const isComputing = (id: string) => computing.has(id);
-
-export function createGroup(options: SolveOptions, title?: string): { id: string; organiserToken: string } {
+export async function createGroup(options: SolveOptions, title?: string): Promise<{ id: string; organiserToken: string }> {
+  const s = await store();
   const organiserToken = newToken();
-  const id = insertGroup({ options, title, organiserHash: hashToken(organiserToken) });
-  logEvent(id, "group.created", { objective: options.objective });
+  const id = await s.insertGroup({ options, title, organiserHash: hashToken(organiserToken) });
+  await s.logEvent(id, "group.created", { objective: options.objective });
   return { id, organiserToken };
 }
 
 /** Quick mode: the organiser enters everyone at once and the solve runs inline. */
 export async function createSolvedGroup(options: SolveOptions, participants: Participant[], deps: SolveDeps): Promise<{ id: string; organiserToken: string; result: SolveResult }> {
   const result = await solve(participants, options, deps);
-  const { id, organiserToken } = createGroup(options);
-  for (const p of participants) insertParticipant(id, p);
-  insertResult(id, result);
-  logEvent(id, "solve.ok", { elements: result.elements, participants: participants.length });
+  const s = await store();
+  const { id, organiserToken } = await createGroup(options);
+  for (const p of participants) await s.insertParticipant(id, p);
+  await s.insertResult(id, result);
+  await s.logEvent(id, "solve.ok", { elements: result.elements, participants: participants.length });
   return { id, organiserToken, result };
 }
 
-function requireGroup(id: string): GroupRow {
-  const g = liveGroup(id);
+async function requireGroup(id: string): Promise<GroupRow> {
+  const g = await (await store()).liveGroup(id);
   if (!g) throw new GroupError("This plan has expired or does not exist.", 404);
   return g;
 }
 
-/** Add this browser's participant, or update it if they already joined. Returns their token. */
-export async function join(id: string, person: Omit<Participant, "id">, cookies: Cookies, deps: SolveDeps): Promise<{ participantId: string; token: string }> {
-  const g = requireGroup(id);
+/**
+ * Add this browser's participant, or update it if they already joined. Returns their token and a
+ * promise for the background re-solve, which the caller should keep alive (`after()` on Vercel).
+ */
+export async function join(id: string, person: Omit<Participant, "id">, cookies: Cookies, deps: SolveDeps): Promise<{ participantId: string; token: string; recompute: Promise<void> }> {
+  const s = await store();
+  const g = await requireGroup(id);
   if (g.status === "confirmed") throw new GroupError("This plan is already confirmed.");
-  const existing = privateParticipants(id);
-  const mine = cookies.participant ? existing.find((p) => tokenMatches(cookies.participant!.split(".")[1], p.tokenHash) && p.id === cookies.participant!.split(".")[0]) : undefined;
+  const existing = await s.privateParticipants(id);
+  const [pid, tok] = cookies.participant?.split(".") ?? [];
+  const mine = pid && tok ? existing.find((p) => p.id === pid && tokenMatches(tok, p.tokenHash)) : undefined;
   let participantId: string, token: string;
   if (mine) {
-    participantId = mine.id; token = cookies.participant!.split(".")[1];
-    updateParticipant(id, { ...person, id: participantId });
-    logEvent(id, "participant.updated", { participantId });
+    participantId = mine.id; token = tok;
+    await s.updateParticipant(id, { ...person, id: participantId });
+    await s.logEvent(id, "participant.updated", { participantId });
   } else {
     if (existing.length >= 8) throw new GroupError("This plan already has 8 people.");
     participantId = newId(6); token = newToken();
-    insertParticipant(id, { ...person, id: participantId }, hashToken(token));
-    logEvent(id, "participant.joined", { participantId, mode: person.mode });
+    await s.insertParticipant(id, { ...person, id: participantId }, hashToken(token));
+    await s.logEvent(id, "participant.joined", { participantId, mode: person.mode });
   }
-  scheduleRecompute(id, deps);
-  return { participantId, token };
+  return { participantId, token, recompute: recompute(id, deps) };
 }
 
-/** Re-solve in the background; concurrent requests for the same group coalesce. */
-export function scheduleRecompute(id: string, deps: SolveDeps): boolean {
-  if (computing.has(id)) { dirty.add(id); return false; }
-  const people = privateParticipants(id);
-  if (people.length < 2) return false;
-  computing.add(id);
-  dirty.delete(id);
-  void (async () => {
-    try {
-      const g = requireGroup(id);
-      const result = await solve(people, groupOptions(g), deps);
-      insertResult(id, result);
-      logEvent(id, "solve.ok", { elements: result.elements, participants: people.length });
-    } catch (e) {
-      logEvent(id, "solve.failed", { message: e instanceof Error ? e.message : String(e) });
-    } finally {
-      computing.delete(id);
-      // Someone joined or changed while we were solving: go again with the latest roster.
-      if (dirty.has(id)) scheduleRecompute(id, deps);
-    }
-  })();
-  return true;
+/**
+ * Re-solve now if nobody else is; otherwise mark the group dirty so the running solve goes once
+ * more with the latest roster. Resolves when this instance's work is done.
+ */
+export async function recompute(id: string, deps: SolveDeps): Promise<void> {
+  const s = await store();
+  const people = await s.privateParticipants(id);
+  if (people.length < 2) return;
+  if (!(await s.claimSolve(id))) return;
+  try {
+    const g = await requireGroup(id);
+    const result = await solve(people, groupOptions(g), deps);
+    await s.insertResult(id, result);
+    await s.logEvent(id, "solve.ok", { elements: result.elements, participants: people.length });
+  } catch (e) {
+    await s.logEvent(id, "solve.failed", { message: e instanceof Error ? e.message : String(e) });
+  } finally {
+    if (await s.releaseSolve(id)) await recompute(id, deps);
+  }
 }
 
-export function vote(id: string, key: string, cookies: Cookies): void {
-  const g = requireGroup(id);
+export async function vote(id: string, key: string, cookies: Cookies): Promise<void> {
+  const s = await store();
+  const g = await requireGroup(id);
   if (g.status === "confirmed") throw new GroupError("This plan is already confirmed.");
-  const me = whoAmI(id, cookies).participantId;
+  const me = (await whoAmI(id, cookies)).participantId;
   if (!me) throw new GroupError("Join the plan before voting.", 403);
-  const result = latestResult(id);
+  const result = await s.latestResult(id);
   if (!result || !result.venues.some((v) => venueKey(v) === key)) throw new GroupError("That place is not on the list any more.");
-  setVote(id, me, key);
-  logEvent(id, "vote", { participantId: me, key });
+  await s.setVote(id, me, key);
+  await s.logEvent(id, "vote", { participantId: me, key });
 }
 
-export function confirm(id: string, key: string, cookies: Cookies): void {
-  const g = requireGroup(id);
+export async function confirm(id: string, key: string, cookies: Cookies): Promise<void> {
+  const s = await store();
+  const g = await requireGroup(id);
   if (!tokenMatches(cookies.organiser, g.organiser_hash)) throw new GroupError("Only the organiser can confirm.", 403);
-  const result = latestResult(id);
+  const result = await s.latestResult(id);
   if (!result || !result.venues.some((v) => venueKey(v) === key)) throw new GroupError("That place is not on the list any more.");
-  confirmGroup(id, key);
-  logEvent(id, "confirmed", { key });
+  await s.confirmGroup(id, key);
+  await s.logEvent(id, "confirmed", { key });
 }
 
-export function whoAmI(id: string, cookies: Cookies): PublicGroup["viewer"] {
-  const g = liveGroup(id);
+export async function whoAmI(id: string, cookies: Cookies): Promise<PublicGroup["viewer"]> {
+  const s = await store();
+  const g = await s.liveGroup(id);
   if (!g) return { isOrganiser: false };
   const isOrganiser = tokenMatches(cookies.organiser, g.organiser_hash);
   let participantId: string | undefined;
   if (cookies.participant) {
     const [pid, tok] = cookies.participant.split(".");
-    const p = privateParticipants(id).find((x) => x.id === pid);
+    const p = (await s.privateParticipants(id)).find((x) => x.id === pid);
     if (p && tokenMatches(tok, p.tokenHash)) participantId = pid;
   }
   return { isOrganiser, participantId };
 }
 
 /** Everything a viewer may see. Never includes coordinates. */
-export function publicView(id: string, cookies: Cookies): PublicGroup | null {
-  const g = liveGroup(id);
+export async function publicView(id: string, cookies: Cookies): Promise<PublicGroup | null> {
+  const s = await store();
+  const g = await s.liveGroup(id);
   if (!g) return null;
-  const viewer = whoAmI(id, cookies);
-  const { tally, byParticipant } = voteTally(id);
+  const [viewer, { tally, byParticipant }, participants, result] = await Promise.all([
+    whoAmI(id, cookies), s.voteTally(id), s.privateParticipants(id), s.latestResult(id),
+  ]);
   const opts = groupOptions(g);
   return {
     id: g.id,
@@ -138,9 +141,9 @@ export function publicView(id: string, cookies: Cookies): PublicGroup | null {
     status: g.status,
     objective: opts.objective,
     constraints: opts.constraints ?? {},
-    participants: privateParticipants(id).map(({ id, name, mode }) => ({ id, name, mode })),
-    result: latestResult(id),
-    computing: computing.has(id),
+    participants: participants.map(({ id, name, mode }) => ({ id, name, mode })),
+    result,
+    computing: isSolving(g),
     votes: tally,
     confirmedVenueKey: g.confirmed_venue_key ?? undefined,
     viewer,

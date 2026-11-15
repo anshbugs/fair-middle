@@ -9,7 +9,7 @@ export const alt = "Fair Middle plan";
 /** Link previews in WhatsApp, iMessage, Slack: the same card as /g/[id]/card.png. */
 export default async function OpenGraphImage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const g = publicView(id, {});
+  const g = await publicView(id, {});
   if (!g) {
     return new ImageResponse(
       <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", background: "#0f172a", color: "#f8fafc", fontSize: 56 }}>Fair Middle</div>,
