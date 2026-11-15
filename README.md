@@ -26,14 +26,21 @@ npm test          # solver unit tests (synthetic city with a "river" penalty)
 
 Objectives: `minimax` (default, minimise the worst commute) and `total`.
 
+**Rules (Phase 2):** a travel-time cap for everyone, "within a short walk of a metro station" (274 Delhi Metro stations from Wikidata), and venue types. When no spot satisfies every rule the solver relaxes them in a fixed order and the receipt says which rule was dropped. Anyone on metro / bus pulls candidate spots toward stations.
+
+**Why not here?** Click anywhere on the map (including on a shared plan) to score that point for the whole group. Coordinates stay on the server.
+
+**Departure time and traffic:** set `TRAVEL_PROVIDER=google` with a Routes API key to get per-mode, traffic- and schedule-aware times; the "Leave at" selector and the compare-across-the-day panel light up. With OSRM, times are free-flow and non-car modes are estimates.
+
 ## Layout
 
 ```
 lib/solver        pure solver: candidates, objective, 3-pass pipeline (+ tests)
-lib/providers     TravelTimeProvider (OSRM, cached), VenueProvider chain, geocoder
+lib/providers     TravelTimeProvider (OSRM, Google Routes, cached), VenueProvider chain, geocoder
+lib/metro.ts      Delhi Metro stations (lib/data), nearest-station helpers
 lib/cache         in-memory cache behind an interface (Redis-ready)
 lib/db.ts         SQLite via node:sqlite; groups, participants, results
-app/api           /solve, /geocode, /groups/[id]
+app/api           /solve, /geocode, /groups/[id], /groups/[id]/inspect
 app/g/[id]        share page (travel times only, never coordinates)
 components        Planner, MapView (MapLibre), Receipt
 ```

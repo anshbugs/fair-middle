@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { VENUE_KINDS, type InspectResult, type LatLng, type Mode, type Objective, type PublicGroup, type SolveResult, type VenueKind } from "@/lib/types";
 import { COLORS } from "./MapView";
 import Receipt, { fmt } from "./Receipt";
@@ -73,15 +73,19 @@ export default function Planner({ shared }: { shared?: PublicGroup }) {
     setInspect(j); setStatus({ text: "" });
   }, []);
 
+  // Refs mirror the two pieces of state the map click needs, so the handler never goes stale.
+  const pickingRef = useRef<number | null>(null);
+  const groupIdRef = useRef<string | null>(groupId);
+  useEffect(() => { pickingRef.current = picking; }, [picking]);
+  useEffect(() => { groupIdRef.current = groupId; }, [groupId]);
   const onMapClick = useCallback((p: LatLng) => {
-    setPicking((i) => {
-      if (i != null) {
-        setPeople((ps) => ps.map((x, k) => (k === i ? { ...x, lat: p.lat, lon: p.lon, where: `Pinned at ${p.lat.toFixed(4)}, ${p.lon.toFixed(4)}` } : x)));
-        return null;
-      }
-      setGroupId((gid) => { if (gid) void inspectAt(p, gid); return gid; });
-      return null;
-    });
+    const i = pickingRef.current;
+    if (i != null) {
+      setPeople((ps) => ps.map((x, k) => (k === i ? { ...x, lat: p.lat, lon: p.lon, where: `Pinned at ${p.lat.toFixed(4)}, ${p.lon.toFixed(4)}` } : x)));
+      setPicking(null);
+      return;
+    }
+    if (groupIdRef.current) void inspectAt(p, groupIdRef.current);
   }, [inspectAt]);
 
   const body = (depart?: string) => ({
