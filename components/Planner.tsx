@@ -1,6 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { VENUE_KINDS, type InspectResult, type LatLng, type Mode, type Objective, type PublicGroup, type SolveResult, type VenueKind } from "@/lib/types";
 import { COLORS } from "./MapView";
@@ -51,6 +52,24 @@ export default function Planner({ shared }: { shared?: PublicGroup }) {
   const [picking, setPicking] = useState<number | null>(null);
   const [focus, setFocus] = useState<LatLng | null>(null);
   const readOnly = !!shared;
+  const router = useRouter();
+  const [flow, setFlow] = useState<"group" | "quick">("group");
+  const [title, setTitle] = useState("");
+
+  /** Account-free flow: create an empty plan, become organiser, go to the link. */
+  const createLink = async () => {
+    setBusy(true);
+    try {
+      const r = await fetch("/api/groups", { method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ title, objective, constraints: { maxMinutes: maxMinutes ? Number(maxMinutes) : undefined, nearMetroM: nearMetro ? 600 : undefined, kinds: kinds.length < VENUE_KINDS.length ? kinds : undefined } }) });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error);
+      router.push(`/g/${j.groupId}`);
+    } catch (e) {
+      setStatus({ text: e instanceof Error ? e.message : "Something went wrong.", err: true });
+      setBusy(false);
+    }
+  };
 
   const update = (i: number, patch: Partial<Person>) => setPeople((ps) => ps.map((p, k) => (k === i ? { ...p, ...patch } : p)));
 
@@ -105,6 +124,7 @@ export default function Planner({ shared }: { shared?: PublicGroup }) {
       if (!r.ok) throw new Error(j.error);
       setResult(j.result); setGroupId(j.groupId); setStatus({ text: "" });
       window.history.replaceState(null, "", `/g/${j.groupId}`);
+      // The share page has votes and the WhatsApp card; the quick result stays visible here too.
     } catch (e) {
       setStatus({ text: e instanceof Error ? e.message : "Something went wrong.", err: true });
     } finally { setBusy(false); }
@@ -140,8 +160,21 @@ export default function Planner({ shared }: { shared?: PublicGroup }) {
         <h1>Fair Middle</h1>
         <p className="tag">Meet where the <b>time</b> is fair, not the distance.</p>
 
-        <h2>Who is coming</h2>
-        {people.map((p, i) => (
+        {!readOnly && (
+          <div className="modes">
+            <button className={flow === "group" ? "on" : ""} onClick={() => setFlow("group")}>Send a link</button>
+            <button className={flow === "quick" ? "on" : ""} onClick={() => setFlow("quick")}>I know everyone&apos;s start</button>
+          </div>
+        )}
+        {!readOnly && flow === "group" && (
+          <div className="card">
+            <h3>One link for the group</h3>
+            <div className="sub">Everyone drops their own start privately. The fair spot updates as people join, then you vote and confirm.</div>
+            <div className="row"><input value={title} placeholder="Plan name, e.g. Friday dinner" onChange={(e) => setTitle(e.target.value)} /></div>
+          </div>
+        )}
+        {(readOnly || flow === "quick") && <h2>Who is coming</h2>}
+        {(readOnly || flow === "quick") && people.map((p, i) => (
           <div className="person" key={i}>
             <div className="dot" style={{ background: COLORS[i % COLORS.length] }}>{p.name.slice(0, 1).toUpperCase()}</div>
             <div>
@@ -168,10 +201,10 @@ export default function Planner({ shared }: { shared?: PublicGroup }) {
 
         {!readOnly && (
           <>
-            <div className="actions">
+            {flow === "quick" && <div className="actions">
               <button disabled={people.length >= 8} onClick={() => setPeople((ps) => [...ps, blank(ps.length + 1)])}>+ Add person</button>
               <button onClick={() => { setPeople(DEMO); setResult(null); setDayResults(null); setInspect(null); setGroupId(null); setStatus({ text: "Three friends across Delhi. Hit “Find the fair spot”." }); }}>Load Delhi demo</button>
-            </div>
+            </div>}
 
             <h2>Rules</h2>
             <label className="opt">Fairness
@@ -197,8 +230,9 @@ export default function Planner({ shared }: { shared?: PublicGroup }) {
             </div>
           </>
         )}
-        <label className="opt"><input type="checkbox" checked={showHeat} onChange={(e) => setShowHeat(e.target.checked)} /> Show fairness heatmap</label>
-        {!readOnly && <button className="primary" onClick={run} disabled={busy}>{busy ? "Working…" : "Find the fair spot"}</button>}
+        {(readOnly || flow === "quick") && <label className="opt"><input type="checkbox" checked={showHeat} onChange={(e) => setShowHeat(e.target.checked)} /> Show fairness heatmap</label>}
+        {!readOnly && flow === "quick" && <button className="primary" onClick={run} disabled={busy}>{busy ? "Working…" : "Find the fair spot"}</button>}
+        {!readOnly && flow === "group" && <button className="primary" onClick={createLink} disabled={busy}>{busy ? "Creating…" : "Create the link"}</button>}
         {readOnly && <a href="/"><button className="primary">Plan your own</button></a>}
         <div className={`status ${status.err ? "err" : ""}`}>{status.text}</div>
 

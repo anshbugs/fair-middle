@@ -77,10 +77,32 @@ export type InspectResult = {
   participants: PublicParticipant[];
 };
 
+export type GroupStatus = "open" | "confirmed";
+
+/** Stable identity for a venue across solves: name plus rounded coordinates. */
+export const venueKey = (v: { name: string; lat: number; lon: number }) => `${v.name.toLowerCase()}|${v.lat.toFixed(4)}|${v.lon.toFixed(4)}`;
+
+export type VoteTally = Record<string, number>; // venueKey -> votes
+
+export type Viewer = {
+  isOrganiser: boolean;
+  /** the participant this browser joined as, if any */
+  participantId?: string;
+};
+
 export type PublicGroup = {
   id: string;
+  title: string;
   createdAt: string;
+  status: GroupStatus;
   objective: Objective;
+  constraints: Constraints;
   participants: PublicParticipant[];
   result: SolveResult | null;
+  /** a solve is running in the background */
+  computing: boolean;
+  votes: VoteTally;
+  confirmedVenueKey?: string;
+  viewer: Viewer;
+  myVote?: string;
 };

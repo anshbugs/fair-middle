@@ -30,6 +30,8 @@ Objectives: `minimax` (default, minimise the worst commute) and `total`.
 
 **Why not here?** Click anywhere on the map (including on a shared plan) to score that point for the whole group. Coordinates stay on the server.
 
+**One link for the group (Phase 3):** the organiser creates a plan and shares a link. Each friend adds their own start privately (only their travel time is visible to the others), the fair spot re-solves in the background as people join, the top three places show the **fairness price of each vote** ("costs Priya +12 min"), friends vote, the organiser confirms, and the plan ships to WhatsApp with a generated card (`/g/<id>/card.png`, also used as the link preview). No accounts: organiser and participant identities are httpOnly cookie tokens, hashed at rest.
+
 **Departure time and traffic:** set `TRAVEL_PROVIDER=google` with a Routes API key to get per-mode, traffic- and schedule-aware times; the "Leave at" selector and the compare-across-the-day panel light up. With OSRM, times are free-flow and non-car modes are estimates.
 
 ## Layout
@@ -40,9 +42,10 @@ lib/providers     TravelTimeProvider (OSRM, Google Routes, cached), VenueProvide
 lib/metro.ts      Delhi Metro stations (lib/data), nearest-station helpers
 lib/cache         in-memory cache behind an interface (Redis-ready)
 lib/db.ts         SQLite via node:sqlite; groups, participants, results
-app/api           /solve, /geocode, /groups/[id], /groups/[id]/inspect
-app/g/[id]        share page (travel times only, never coordinates)
-components        Planner, MapView (MapLibre), Receipt
+app/api           /solve, /geocode, /groups (create), /groups/[id] (+ join, vote, confirm, solve, inspect)
+app/g/[id]        group page (join, vote, confirm, share), card.png and OpenGraph image
+lib/group.ts      group lifecycle: create, join, background re-solve, vote, confirm, public view
+components        Planner (home), GroupPage, MapView (MapLibre), Receipt
 ```
 
 Keys stay server-side. Shared plans expose each person's *travel time*, never their start location, and expire after 7 days.
