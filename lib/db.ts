@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { mkdirSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type { Constraints, GroupStatus, Objective, Participant, SolveOptions, SolveResult, VoteTally } from "./types";
@@ -20,7 +21,9 @@ function addColumn(db: DatabaseSync, table: string, col: string, decl: string) {
 
 function open(): DatabaseSync {
   if (globalThis.__fairMiddleDb) return globalThis.__fairMiddleDb;
-  const file = process.env.DATABASE_FILE ?? path.join(process.cwd(), "data", "fairmiddle.db");
+  // On serverless hosts only the temp directory is writable; data there is ephemeral per instance.
+  // Point DATABASE_FILE at a persistent disk, or switch to the Postgres adapter, for real use.
+  const file = process.env.DATABASE_FILE ?? (process.env.VERCEL ? path.join(os.tmpdir(), "fairmiddle.db") : path.join(process.cwd(), "data", "fairmiddle.db"));
   if (file !== ":memory:") mkdirSync(path.dirname(file), { recursive: true });
   const db = new DatabaseSync(file);
   db.exec(`
