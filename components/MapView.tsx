@@ -4,16 +4,17 @@ import * as maplibregl from "maplibre-gl";
 import { Map as MLMap, Marker, type MapMouseEvent } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { useEffect, useRef } from "react";
-import type { LatLng, SolveResult } from "@/lib/types";
+import type { InspectResult, LatLng, SolveResult } from "@/lib/types";
 
 export const COLORS = ["#2563eb", "#db2777", "#d97706", "#7c3aed", "#059669", "#dc2626", "#0891b2", "#65a30d"];
 
 type Props = {
   people: { name: string; lat: number | null; lon: number | null }[];
   result: SolveResult | null;
+  inspect: InspectResult | null;
   showHeat: boolean;
-  onPick?: (p: LatLng) => void;
-  picking: boolean;
+  onClick?: (p: LatLng) => void;
+  cursor: "default" | "pin" | "inspect";
   focus?: LatLng | null;
 };
 
@@ -29,13 +30,14 @@ function el(className: string, text = "", style = "") {
   return d;
 }
 
-export default function MapView({ people, result, showHeat, onPick, picking, focus }: Props) {
+export default function MapView({ people, result, inspect, showHeat, onClick, cursor, focus }: Props) {
   const box = useRef<HTMLDivElement>(null);
   const map = useRef<MLMap | null>(null);
   const markers = useRef<Marker[]>([]);
+  const inspectMarker = useRef<Marker | null>(null);
   const ready = useRef(false);
-  const pickRef = useRef(onPick);
-  pickRef.current = onPick;
+  const clickRef = useRef(onClick);
+  clickRef.current = onClick;
 
   useEffect(() => {
     if (!box.current || map.current) return;
@@ -56,7 +58,7 @@ export default function MapView({ people, result, showHeat, onPick, picking, foc
       box.current?.setAttribute("data-loaded", "1");
     });
     m.on("error", (e) => console.error("[map]", e.error?.message ?? e));
-    m.on("click", (e: MapMouseEvent) => pickRef.current?.({ lat: e.lngLat.lat, lon: e.lngLat.lng }));
+    m.on("click", (e: MapMouseEvent) => clickRef.current?.({ lat: e.lngLat.lat, lon: e.lngLat.lng }));
     map.current = m;
     // Keep the canvas in step with the container (layout shifts, panel resizes, emulated viewports).
     const ro = new ResizeObserver(() => m.resize());
@@ -66,8 +68,8 @@ export default function MapView({ people, result, showHeat, onPick, picking, foc
 
   useEffect(() => {
     const m = map.current; if (!m) return;
-    m.getCanvas().style.cursor = picking ? "crosshair" : "";
-  }, [picking]);
+    m.getCanvas().style.cursor = cursor === "pin" ? "crosshair" : cursor === "inspect" ? "help" : "";
+  }, [cursor]);
 
   // Markers, heat and lines
   useEffect(() => {
@@ -104,6 +106,17 @@ export default function MapView({ people, result, showHeat, onPick, picking, foc
     const safeDraw = () => { try { draw(); } catch (err) { console.error("[map draw]", err); } };
     if (ready.current) safeDraw(); else m.once("load", safeDraw);
   }, [people, result, showHeat]);
+
+  // "Why not here?" marker
+  useEffect(() => {
+    const m = map.current; if (!m) return;
+    inspectMarker.current?.remove(); inspectMarker.current = null;
+    if (!inspect) return;
+    const label = inspect.score ? `Longest commute here: ${Math.round(inspect.score.worst / 60)} min` : "Unreachable for someone";
+    inspectMarker.current = new Marker({ element: el("mk-inspect", "?") }).setLngLat([inspect.point.lon, inspect.point.lat])
+      .setPopup(new maplibregl.Popup({ closeButton: false, offset: 12 }).setText(label)).addTo(m);
+    inspectMarker.current.togglePopup();
+  }, [inspect]);
 
   useEffect(() => {
     if (focus && map.current) map.current.flyTo({ center: [focus.lon, focus.lat], zoom: 15 });

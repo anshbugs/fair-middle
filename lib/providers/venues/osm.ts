@@ -1,5 +1,5 @@
 import { haversineKm } from "../../geo";
-import type { LatLng, Venue } from "../../types";
+import type { LatLng, Venue, VenueKind } from "../../types";
 import { VENUE_KINDS, type VenueProvider } from "./types";
 
 const UA = process.env.APP_USER_AGENT ?? "fair-middle/0.1 (meet-in-the-middle by travel time)";
@@ -10,12 +10,16 @@ async function getJson<T>(url: string, timeoutMs: number): Promise<T> {
   return (await r.json()) as T;
 }
 
+const pickKinds = (kinds?: VenueKind[]): VenueKind[] => (kinds && kinds.length ? kinds : [...VENUE_KINDS]);
+/** Text-search providers only understand the common words. */
+const searchable = (kinds: VenueKind[]) => kinds.filter((k) => k === "cafe" || k === "restaurant" || k === "bar" || k === "pub");
+
 /** Overpass: best coverage, but public servers are often at capacity. */
 export class OverpassVenues implements VenueProvider {
   readonly name = "overpass";
   constructor(private base = process.env.OVERPASS_URL ?? "https://overpass-api.de/api/interpreter") {}
-  async near(pt: LatLng, radiusM: number, limit: number): Promise<Venue[]> {
-    const re = `^(${VENUE_KINDS.join("|")})$`;
+  async near(pt: LatLng, radiusM: number, limit: number, kinds?: VenueKind[]): Promise<Venue[]> {
+    const re = `^(${pickKinds(kinds).join("|")})$`;
     const q = `[out:json][timeout:8];(node(around:${radiusM},${pt.lat},${pt.lon})["amenity"~"${re}"]["name"];way(around:${radiusM},${pt.lat},${pt.lon})["amenity"~"${re}"]["name"];);out center ${limit * 2};`;
     type El = { lat?: number; lon?: number; center?: { lat: number; lon: number }; tags: { name: string; amenity: string } };
     const j = await getJson<{ elements: El[] }>(`${this.base}?data=${encodeURIComponent(q)}`, 9000);
@@ -28,11 +32,12 @@ export class OverpassVenues implements VenueProvider {
 /** Nominatim bounded search: reliable, limited to 1 request per second. */
 export class NominatimVenues implements VenueProvider {
   readonly name = "nominatim";
-  async near(pt: LatLng, radiusM: number, limit: number): Promise<Venue[]> {
+  async near(pt: LatLng, radiusM: number, limit: number, kinds?: VenueKind[]): Promise<Venue[]> {
     const d = radiusM / 111000;
     const box = `${pt.lon - d},${pt.lat + d},${pt.lon + d},${pt.lat - d}`;
     const out: Venue[] = [];
-    for (const kind of ["cafe", "restaurant"]) {
+    const words = searchable(pickKinds(kinds));
+    for (const kind of words.length ? words.slice(0, 2) : ["cafe", "restaurant"]) {
       type Row = { lat: string; lon: string; name?: string; display_name: string; type: string };
       const j = await getJson<Row[]>(`https://nominatim.openstreetmap.org/search?q=${kind}&format=json&viewbox=${box}&bounded=1&limit=${Math.min(limit, 40)}`, 8000);
       j.forEach((x) => out.push({ name: x.name || x.display_name.split(",")[0], kind: x.type.replace("_", " "), lat: +x.lat, lon: +x.lon }));
@@ -45,9 +50,10 @@ export class NominatimVenues implements VenueProvider {
 /** Photon (komoot): fast, relevance-ranked, so results are distance-filtered here. */
 export class PhotonVenues implements VenueProvider {
   readonly name = "photon";
-  async near(pt: LatLng, radiusM: number, limit: number): Promise<Venue[]> {
+  async near(pt: LatLng, radiusM: number, limit: number, kinds?: VenueKind[]): Promise<Venue[]> {
     const out: Venue[] = [];
-    for (const kind of ["cafe", "restaurant"]) {
+    const words = searchable(pickKinds(kinds));
+    for (const kind of words.length ? words.slice(0, 2) : ["cafe", "restaurant"]) {
       type F = { properties: { name?: string }; geometry: { coordinates: [number, number] } };
       const j = await getJson<{ features: F[] }>(`https://photon.komoot.io/api/?q=${kind}&lat=${pt.lat}&lon=${pt.lon}&limit=${limit}&osm_tag=amenity:${kind}`, 8000);
       j.features.forEach((f) => {
@@ -63,10 +69,10 @@ export class PhotonVenues implements VenueProvider {
 export class VenueChain implements VenueProvider {
   readonly name: string;
   constructor(private providers: VenueProvider[]) { this.name = providers.map((p) => p.name).join(">"); }
-  async near(pt: LatLng, radiusM: number, limit: number): Promise<Venue[]> {
+  async near(pt: LatLng, radiusM: number, limit: number, kinds?: VenueKind[]): Promise<Venue[]> {
     for (const p of this.providers) {
       try {
-        const v = await p.near(pt, radiusM, limit);
+        const v = await p.near(pt, radiusM, limit, kinds);
         if (v.length) return dedupe(v).slice(0, limit);
       } catch { /* next provider */ }
     }

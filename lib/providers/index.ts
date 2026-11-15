@@ -1,6 +1,7 @@
 import { MemoryCache } from "../cache/memory";
 import type { Cache } from "../cache/types";
 import { CachedTravelTime } from "./travelTime/cached";
+import { GoogleRoutesProvider } from "./travelTime/google";
 import { OsrmProvider } from "./travelTime/osrm";
 import type { TravelTimeProvider } from "./travelTime/types";
 import { NominatimVenues, OverpassVenues, PhotonVenues, VenueChain } from "./venues/osm";
@@ -9,6 +10,9 @@ import type { VenueProvider } from "./venues/types";
 /**
  * One place that reads the environment and wires providers. Module-level singletons survive
  * across requests in a long-lived server and are recreated per cold start on serverless.
+ *
+ *   TRAVEL_PROVIDER=osrm    free, car profile only, no traffic (default)
+ *   TRAVEL_PROVIDER=google  Routes API: per-mode, traffic- and schedule-aware (needs GOOGLE_MAPS_API_KEY)
  */
 type Registry = { cache: Cache; travel: TravelTimeProvider; venues: VenueProvider };
 
@@ -25,7 +29,9 @@ export function providers(): Registry {
     case "osrm":
       travel = new OsrmProvider();
       break;
-    // case "google": travel = new GoogleRoutesProvider(process.env.GOOGLE_MAPS_API_KEY!); break;  // Phase 2
+    case "google":
+      travel = new GoogleRoutesProvider(process.env.GOOGLE_MAPS_API_KEY ?? "");
+      break;
     default:
       throw new Error(`Unknown TRAVEL_PROVIDER "${kind}"`);
   }

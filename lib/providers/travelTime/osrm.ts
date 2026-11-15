@@ -10,17 +10,18 @@ type OsrmTable = {
 
 /**
  * OSRM table service. The public demo server only has a car profile, so every mode is routed as
- * driving; two-wheeler and walk/transit are scaled as rough estimates and flagged via `name`.
+ * driving; two-wheeler and walk/transit are scaled as rough estimates (the UI says so).
  */
 export class OsrmProvider implements TravelTimeProvider {
   readonly name: string;
   readonly maxCoords = 100;
+  readonly supportsDeparture = false;
   constructor(private base = process.env.OSRM_URL ?? "https://router.project-osrm.org", private timeoutMs = 15000) {
     this.name = `osrm(${new URL(base).host})`;
   }
 
   matrix(origins: LatLng[], dests: LatLng[], opts: MatrixOpts): Promise<MatrixResult> {
-    return chunkedMatrix(this, (o, d) => this.call(o, d, opts), origins, dests);
+    return chunkedMatrix(this.maxCoords - origins.length, (o, d) => this.call(o, d, opts), origins, dests);
   }
 
   private async call(origins: LatLng[], dests: LatLng[], opts: MatrixOpts): Promise<MatrixResult> {

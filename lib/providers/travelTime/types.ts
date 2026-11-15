@@ -13,17 +13,19 @@ export interface TravelTimeProvider {
   readonly name: string;
   /** Maximum origins + destinations the provider accepts in one call; the caller chunks above it. */
   readonly maxCoords: number;
+  /** True when `departAt` changes the answer (traffic, transit schedules). */
+  readonly supportsDeparture: boolean;
   matrix(origins: LatLng[], dests: LatLng[], opts: MatrixOpts): Promise<MatrixResult>;
 }
 
-/** Split destinations so each call stays within the provider's coordinate budget. */
+/** Split destinations so each call stays within a per-call budget of destinations. */
 export async function chunkedMatrix(
-  p: TravelTimeProvider,
+  perCall: number,
   call: (o: LatLng[], d: LatLng[]) => Promise<MatrixResult>,
   origins: LatLng[],
   dests: LatLng[],
 ): Promise<MatrixResult> {
-  const per = Math.max(1, p.maxCoords - origins.length);
+  const per = Math.max(1, perCall);
   if (dests.length <= per) return call(origins, dests);
   const durations: (number | null)[][] = origins.map(() => []);
   const snapped: MatrixResult["snapped"] = [];

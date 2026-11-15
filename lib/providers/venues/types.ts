@@ -1,8 +1,8 @@
-import type { LatLng, Venue } from "../../types";
+import type { LatLng, Venue, VenueKind } from "../../types";
+
+export { VENUE_KINDS } from "../../types";
 
 export interface VenueProvider {
   readonly name: string;
-  near(pt: LatLng, radiusM: number, limit: number): Promise<Venue[]>;
+  near(pt: LatLng, radiusM: number, limit: number, kinds?: VenueKind[]): Promise<Venue[]>;
 }
-
-export const VENUE_KINDS = ["cafe", "restaurant", "bar", "pub", "food_court"] as const;

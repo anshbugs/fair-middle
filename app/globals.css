@@ -80,3 +80,11 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
   .app { grid-template-columns: 1fr; grid-template-rows: auto 60vh; height: auto; }
   .side { border-right: 0; border-bottom: 1px solid var(--line); }
 }
+
+/* Phase 2 */
+.card.notice { border-color: var(--warn); color: var(--warn); font-size: 14px; }
+label.opt input.num { width: 64px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); border-radius: 8px; padding: 5px 8px; font: inherit; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.chip { border-radius: 999px; padding: 4px 10px; font-size: 13px; }
+.chip.on { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+.mk-inspect { width: 26px; height: 26px; border-radius: 50%; background: #111; color: #fff; font-weight: 700; display: grid; place-items: center; border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,.4); }
